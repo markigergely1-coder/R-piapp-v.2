@@ -64,7 +64,7 @@ def fetch_invoices_from_email():
 
 # --- ELSZÁMOLÁS LOGIKA ---
 def run_accounting(df_att, df_szamla, df_beall):
-    if df_szamla.empty: return pd.DataFrame(), "Nincs számla adat!"
+    if df_szamla.empty: return pd.DataFrame(), pd.DataFrame(), "Nincs számla adat!"
     
     last_inv = df_szamla.iloc[-1]
     inv_date = pd.to_datetime(last_inv['Dátum'])
@@ -74,10 +74,12 @@ def run_accounting(df_att, df_szamla, df_beall):
     df_beall['Dátum'] = pd.to_datetime(df_beall['Dátum'])
     relevant_days = df_beall[(df_beall['Dátum'].dt.month == target_month) & (df_beall['Dátum'].dt.year == target_year)]['Dátum']
     
-    if len(relevant_days) == 0: return pd.DataFrame(), f"Nincsenek alkalmak {target_month}. hónapra!"
+    if len(relevant_days) == 0: return pd.DataFrame(), pd.DataFrame(), f"Nincsenek alkalmak {target_month}. hónapra!"
     
     cost_per_session = last_inv['Összeg'] / len(relevant_days)
     summary = []
+    daily_breakdown = [] # ÚJ: Ebben gyűjtjük a napi adatokat
+    
     df_att['Alkalom Dátuma'] = pd.to_datetime(df_att['Alkalom Dátuma'])
 
     for day in relevant_days:
@@ -86,15 +88,24 @@ def run_accounting(df_att, df_szamla, df_beall):
         no_names = set(day_att[day_att['Jön-e'] == 'No']['Név'])
         final_list = list(yes_names - no_names)
         
-        if final_list:
-            per_person = cost_per_session / len(final_list)
+        attendee_count = len(final_list)
+        if attendee_count > 0:
+            per_person = cost_per_session / attendee_count
+            daily_breakdown.append({
+                "Dátum": day.strftime('%Y-%m-%d'),
+                "Alkalom Költsége": cost_per_session,
+                "Létszám": attendee_count,
+                "Költség/Fő": per_person
+            })
             for name in final_list:
                 summary.append({"Név": name, "Fizetendő": per_person})
     
-    if not summary: return pd.DataFrame(), "Nincs részvételi adat a megadott időszakra!"
+    if not summary: return pd.DataFrame(), pd.DataFrame(), "Nincs részvételi adat!"
     
     res_df = pd.DataFrame(summary).groupby("Név").sum().reset_index()
-    return res_df, f"Sikeres számolás ({target_year}. {target_month}.)"
+    daily_df = pd.DataFrame(daily_breakdown) # ÚJ: DataFrame a napi bontáshoz
+    
+    return res_df, daily_df, f"Sikeres számolás ({target_year}. {target_month}.)"
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Ropi Admin Pro", layout="wide")
@@ -127,12 +138,26 @@ with tab2:
             st.cache_data.clear() # Frissítjük az adatokat
 
 with tab3:
-    st.header("Google Sheets adatok")
-    valasztas = st.selectbox("Válassz táblát:", ["Attendance", "Szamlak", "Beállítások"])
+    st.header("Google Sheets & Elszámolási részletek")
+    valasztas = st.selectbox("Válassz táblát:", 
+        ["Attendance", "Szamlak", "Beállítások", "Alkalmankénti lebontás (Makró helyett)"])
     
     if valasztas == "Attendance":
         st.dataframe(df_att)
     elif valasztas == "Szamlak":
         st.dataframe(df_szamla)
-    else:
+    elif valasztas == "Beállítások":
         st.dataframe(df_beall)
+    elif valasztas == "Alkalmankénti lebontás (Makró helyett)":
+        st.subheader("Kiszámolt napi költségek")
+        # Lefuttatjuk a számolást, hogy megkapjuk a daily_df-et
+        res, daily_df, msg = run_accounting(df_att, df_szamla, df_beall)
+        if not daily_df.empty:
+            # Formázás, hogy úgy nézzen ki, mint a Sheets-ben
+            st.dataframe(daily_df.style.format({
+                "Alkalom Költsége": "{:.0f} Ft",
+                "Létszám": "{:.0f} fő",
+                "Költség/Fő": "{:.0f} Ft"
+            }), use_container_width=True)
+        else:
+            st.warning("Nincs megjeleníthető adat. Ellenőrizd a számlákat és az alkalmakat!")
