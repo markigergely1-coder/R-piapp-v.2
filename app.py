@@ -68,10 +68,60 @@ def run_accounting():
     client = get_gspread_client()
     ss = client.open("Attendance")
     
-    # Adatok betöltése
-    att_data = pd.DataFrame(ss.worksheet("Attendance").get_all_records())
-    szamla_data = pd.DataFrame(ss.worksheet("Szamlak").get_all_records())
-    beall_data = pd.DataFrame(ss.worksheet("Beállítások").get_all_values())
+  # --- ADATOK BEOLVASÁSA ---
+@st.cache_data(ttl=600) # 10 percig gyorsítótárazza, hogy ne terhelje a Google-t
+def get_all_sheets_data():
+    client = get_gspread_client()
+    ss = client.open("Attendance")
+    
+    # Minden lap beolvasása listaként -> DataFrame-ként
+    attendance = pd.DataFrame(ss.worksheet("Attendance").get_all_records())
+    szamlak = pd.DataFrame(ss.worksheet("Szamlak").get_all_records())
+    
+    # A Beállításoknál nincs fejléc, így máshogy olvassuk
+    beallitasok_raw = ss.worksheet("Beállítások").get_all_values()
+    beallitasok = pd.DataFrame(beallitasok_raw, columns=["Dátumok"])
+    
+    return attendance, szamlak, beallitasok
+
+# --- APP LOGIKA ---
+try:
+    df_att, df_szamla, df_beall = get_all_sheets_data()
+except Exception as e:
+    st.error(f"Hiba az adatok beolvasásakor: {e}")
+    st.stop()
+
+# ... (többi rész marad) ...
+
+with tab3:
+    st.header("📝 Nyers adatok a Google Sheets-ből")
+    
+    # Választókapcsoló a táblák között
+    valasztott_tabla = st.radio(
+        "Melyik táblát szeretnéd látni?",
+        ["Jelenlét (Attendance)", "Számlák (Szamlak)", "Beállítások"],
+        horizontal=True
+    )
+    
+    if valasztott_tabla == "Jelenlét (Attendance)":
+        st.subheader("Regisztrált jelenlétek")
+        st.dataframe(df_att, use_container_width=True)
+        
+    elif valasztott_tabla == "Számlák (Szamlak)":
+        st.subheader("Beérkezett számlák")
+        st.dataframe(df_szamla, use_container_width=True)
+        
+    elif valasztott_tabla == "Beállítások":
+        st.subheader("Tervezett alkalmak")
+        st.dataframe(df_beall, use_container_width=True)
+
+    # Egy kis extra: Letöltés gomb
+    st.download_button(
+        label="Adatok letöltése CSV-ben",
+        data=df_att.to_csv(index=False).encode('utf-8'),
+        file_name='attendance_backup.csv',
+        mime='text/csv',
+    )
 
     # Utolsó számla és célhónap meghatározása
     last_inv = szamla_data.iloc[-1]
