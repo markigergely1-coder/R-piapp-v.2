@@ -446,12 +446,30 @@ def render_accounting_page(client):
                 st.dataframe(daily, use_container_width=True)
             else: st.error(msg)
 
+def render_raw_attendance_page(client):
+    st.title("📂 Nyers Adatok (Attendance)")
+    if client is None: return
+    try:
+        # Lekéri az első munkalap (sheet1) összes adatát
+        rows = client.open(GSHEET_NAME).sheet1.get_all_values()
+        if rows:
+            # Az első sor a fejléc, a többi az adat
+            df = pd.DataFrame(rows[1:], columns=rows[0])
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("A táblázat jelenleg üres.")
+    except Exception as e:
+        st.error(f"Hiba az adatok betöltésekor: {e}")
+
 # --- APP START ---
 tuesday_dates = generate_tuesday_dates()
 if 'admin_step' not in st.session_state: reset_admin_form()
 if 'admin_date' not in st.session_state: st.session_state.admin_date = tuesday_dates[0]
 
-page = st.sidebar.radio("Menü", ["Jelenléti Ív", "Admin Regisztráció", "Statisztika", "Leaderboard", "Számla Import", "Havi Elszámolás"])
+page = st.sidebar.radio(
+    "Menü", 
+    ["Jelenléti Ív", "Admin Regisztráció", "Statisztika", "Leaderboard", "Számla Import", "Havi Elszámolás", "Nyers Adatok"]
+)
 client = get_gsheet_connection()
 
 if page == "Jelenléti Ív": render_main_page(client)
@@ -460,3 +478,4 @@ elif page == "Statisztika": render_stats_page(client)
 elif page == "Leaderboard": render_leaderboard_page(client)
 elif page == "Számla Import": render_invoice_import_page(client)
 elif page == "Havi Elszámolás": render_accounting_page(client)
+elif page == "Nyers Adatok": render_raw_attendance_page(client)
