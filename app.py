@@ -129,7 +129,7 @@ def save_to_sheet(client, rows):
         sheet = client.open(GSHEET_NAME).sheet1
         sheet.append_rows(rows, value_input_option='USER_ENTERED')
         
-        # Munkamenet mentése
+        # Munkamenet mentése (a legfrissebb kerül előre)
         for r in rows:
             st.session_state.session_submissions.insert(0, r)
             
@@ -284,17 +284,39 @@ def render_recent_submissions_page(df_all):
     st.title("📝 Friss Beküldések")
     
     st.subheader("🔹 Ebben a munkamenetben felvitt adatok")
+    
     if st.session_state.session_submissions:
+        # Táblázat megjelenítése
         sdf = pd.DataFrame(st.session_state.session_submissions, columns=["Név", "Jön-e", "Regisztráció Időpontja", "Alkalom Dátuma"])
         st.table(sdf)
+
+        # Törlési opciók
+        st.markdown("### 🗑️ Adatok törlése a listából")
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            if st.button("Összes törlése", help="Minden elemet töröl a fenti listából"):
+                st.session_state.session_submissions = []
+                st.rerun()
+        
+        with col2:
+            to_remove = st.multiselect(
+                "Csak bizonyos sorok törlése:", 
+                range(len(st.session_state.session_submissions)),
+                format_func=lambda i: f"{st.session_state.session_submissions[i][0]} ({st.session_state.session_submissions[i][3]})",
+                help="Válaszd ki a törölni kívánt bejegyzéseket"
+            )
+            if to_remove and st.button("Kijelöltek törlése"):
+                st.session_state.session_submissions = [item for i, item in enumerate(st.session_state.session_submissions) if i not in to_remove]
+                st.rerun()
+                
     else:
         st.info("Még nem vittél fel adatot mióta megnyitottad az alkalmazást.")
     
     st.markdown("---")
     st.subheader("📂 Legutóbbi 20 sor a Google Sheet-ből")
     if not df_all.empty:
-        # A táblázat aljáról vesszük az utolsó 20-at
-        latest_rows = df_all.tail(20).iloc[::-1] # Megfordítjuk, hogy a legfrissebb legyen legfelül
+        latest_rows = df_all.tail(20).iloc[::-1] 
         st.dataframe(latest_rows, use_container_width=True)
     else:
         st.warning("Nem sikerült betölteni az adatokat.")
