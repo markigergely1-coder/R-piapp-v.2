@@ -14,14 +14,12 @@ def add_visual_styling():
     st.markdown(
         """
         <style>
-        /* Sötét betűszín kényszerítése */
         .stApp, p, h1, h2, h3, h4, label, div, span, input {
             color: #1E1E1E !important; 
         }
         .stApp {
             background-color: #f8f9fa;
         }
-        /* Metric kártyák */
         div[data-testid="stMetric"] {
             background-color: #ffffff;
             border: 1px solid #ddd;
@@ -29,7 +27,6 @@ def add_visual_styling():
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
-        /* Gombok */
         div.stButton > button {
             background-color: #2c3e50;
             color: white !important;
@@ -59,6 +56,10 @@ MAIN_NAME_LIST = [
 MAIN_NAME_LIST.sort()
 
 PLUS_PEOPLE_COUNT = [str(i) for i in range(11)]
+
+# --- SESSION STATE INICIALIZÁLÁS ---
+if 'session_submissions' not in st.session_state:
+    st.session_state.session_submissions = []
 
 # --- 2. ADATBÁZIS KAPCSOLAT ---
 @st.cache_resource(ttl=3600)
@@ -91,7 +92,6 @@ def get_gsheet_connection():
 
 @st.cache_data(ttl=60)
 def get_all_data(_client):
-    """Lekéri a teljes adatbázist DataFrame formátumban."""
     if _client is None: return pd.DataFrame()
     try:
         sheet = _client.open(GSHEET_NAME).sheet1
@@ -101,7 +101,6 @@ def get_all_data(_client):
     except: return pd.DataFrame()
 
 def get_historical_guests(df, main_name):
-    """Okos vendégajánló a korábbi adatok alapján."""
     if df.empty: return []
     try:
         col_name = df.columns[0]
@@ -129,6 +128,11 @@ def save_to_sheet(client, rows):
     try:
         sheet = client.open(GSHEET_NAME).sheet1
         sheet.append_rows(rows, value_input_option='USER_ENTERED')
+        
+        # Munkamenet mentése
+        for r in rows:
+            st.session_state.session_submissions.insert(0, r)
+            
         st.cache_data.clear()
         return True, "Sikeres mentés"
     except Exception as e: return False, str(e)
@@ -148,11 +152,9 @@ def build_monthly_stats(df):
         status = str(row.iloc[1]).strip()
         reg = str(row.iloc[2]).strip()
         evt = str(row.iloc[3]) if len(row) > 3 else ""
-        
         if status != "Yes": continue
         d = parse_attendance_date(reg, evt)
         if not d: continue
-        
         m_key = d.strftime("%Y-%m")
         counts.setdefault(m_key, {})
         counts[m_key][name] = counts[m_key].get(name, 0) + 1
@@ -162,19 +164,15 @@ def build_monthly_stats(df):
 
 def render_main_page(client, df_all):
     st.title("🏐 Röpi Jelenléti - All in One")
-    
     dates = generate_tuesday_dates(5, 2)
-    next_tue = dates[5] # A lista vége felé (múltbeli + aktuális)
+    next_tue = dates[5]
     
-    # --- METRIKÁK ---
     current_count = 0
     df_coming_names = []
-    
     if not df_all.empty:
         date_col = df_all.columns[3] 
         status_col = df_all.columns[1]
         name_col = df_all.columns[0]
-        
         target_str = str(next_tue).split(" ")[0]
         mask = (df_all[date_col].astype(str).str.contains(target_str)) & (df_all[status_col] == "Yes")
         df_filtered = df_all[mask]
@@ -191,22 +189,17 @@ def render_main_page(client, df_all):
             st.warning("Még senki nem iratkozott fel a következő alkalomra.")
 
     st.markdown("---")
-
     col_form, col_spacer = st.columns([1, 1])
     
     with col_form:
         st.subheader("📝 Beírás")
         name = st.selectbox("Név:", MAIN_NAME_LIST)
-        
         use_custom_date = st.checkbox("Másik dátumra írok be (Múlt/Jövő)")
         selected_date = st.selectbox("Válassz dátumot:", dates, index=5) if use_custom_date else next_tue
-            
         status = st.radio("Jössz edzésre?", ["Igen", "Nem"], horizontal=True, index=0)
         
-        # Vendég logika (Okos lista)
         guest_names_final = []
         guest_count = 0
-        
         if status == "Igen":
             guest_count = st.number_input("Vendégek száma", 0, 10, 0)
             if guest_count > 0:
@@ -220,132 +213,104 @@ def render_main_page(client, df_all):
                     else:
                         guest_names_final.append(sel)
         
-        st.markdown("")
         if st.button("Küldés"):
             ts = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            rows = []
-            rows.append([name, "Yes" if status == "Igen" else "No", ts, selected_date])
+            rows = [[name, "Yes" if status == "Igen" else "No", ts, selected_date]]
             for gn in guest_names_final:
                 rows.append([f"{name} - {gn}", "Yes", ts, selected_date])
-                
+            
             succ, msg = save_to_sheet(client, rows)
             if succ:
-                st.success(f"Mentve: {name} -> {selected_date}")
-                time.sleep(1.5)
+                st.success(f"Mentve! ({len(rows)} sor)")
+                time.sleep(1)
                 st.rerun()
             else:
                 st.error(msg)
 
 def render_admin_page(client, df_all):
     st.title("🛠️ Admin Regisztráció")
-    
     if 'admin_step' not in st.session_state: st.session_state.admin_step = 1
     if 'admin_att' not in st.session_state: 
         st.session_state.admin_att = {n: {"p": False, "g": "0"} for n in MAIN_NAME_LIST}
     
-    # 1. Lépés: Kijelölés
     if st.session_state.admin_step == 1:
         dt = generate_tuesday_dates(8, 2)
-        st.session_state.admin_date = st.selectbox("Melyik dátumra rögzítesz?", dt, index=8)
-        
-        st.markdown("### Jelenlévők kijelölése")
+        st.session_state.admin_date = st.selectbox("Dátum:", dt, index=8)
         cols = st.columns(3)
-        names_per_col = (len(MAIN_NAME_LIST) + 2) // 3
-        
+        n_per_c = (len(MAIN_NAME_LIST) + 2) // 3
         for i, col in enumerate(cols):
-            start = i * names_per_col
-            end = start + names_per_col
             with col:
-                for name in MAIN_NAME_LIST[start:end]:
+                for name in MAIN_NAME_LIST[i*n_per_c:(i+1)*n_per_c]:
                     st.session_state.admin_att[name]["p"] = st.checkbox(name, value=st.session_state.admin_att[name]["p"], key=f"p_{name}")
                     if st.session_state.admin_att[name]["p"]:
-                        st.session_state.admin_att[name]["g"] = st.selectbox(f"+ Vendég ({name})", PLUS_PEOPLE_COUNT, key=f"g_{name}", index=PLUS_PEOPLE_COUNT.index(st.session_state.admin_att[name]["g"]))
-                        st.markdown("---")
+                        st.session_state.admin_att[name]["g"] = st.selectbox(f"+V ({name})", PLUS_PEOPLE_COUNT, key=f"g_{name}", index=PLUS_PEOPLE_COUNT.index(st.session_state.admin_att[name]["g"]))
+        
+        if st.button("Tovább"): st.session_state.admin_step = 2; st.rerun()
 
-        st.markdown("---")
-        if st.button("Tovább a vendégnevekhez"): 
-            st.session_state.admin_step = 2
-            st.rerun()
-
-    # 2. Lépés: Nevek megadása (OKOS LISTÁVAL)
     elif st.session_state.admin_step == 2:
-        st.header(f"Dátum: {st.session_state.admin_date}")
-        
         pg = [(n, int(d["g"])) for n, d in st.session_state.admin_att.items() if d["p"] and int(d["g"]) > 0]
-        
-        if not pg: 
-            st.info("Nincs rögzítendő vendég.")
-        
         for n, c in pg:
             st.markdown(f"**{n}** vendégei:")
-            # Itt hívjuk meg az okos listát az adminnál is!
             history = get_historical_guests(df_all, n)
             options = ["-- Új név írása --"] + history
-            
             for i in range(c):
-                # A session state kulcsoknak egyedinek kell lenniük
-                sel_key = f"admin_sel_{n}_{i}"
-                txt_key = f"admin_txt_{n}_{i}"
-                
-                sel = st.selectbox(f"{i+1}. vendég ({n}):", options, key=sel_key)
-                if sel == "-- Új név írása --":
-                    st.text_input("Írd be a nevet:", key=txt_key)
-            
-            st.markdown("---")
-            
+                sel = st.selectbox(f"{i+1}. vendég ({n}):", options, key=f"admin_sel_{n}_{i}")
+                if sel == "-- Új név írása --": st.text_input("Név:", key=f"admin_txt_{n}_{i}")
+        
         c1, c2 = st.columns(2)
         with c1:
             if st.button("Vissza"): st.session_state.admin_step = 1; st.rerun()
         with c2:
-            if st.button("Mentés a Táblázatba", type="primary"):
+            if st.button("Mentés", type="primary"):
                 rows = []
                 ts = datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d %H:%M:%S")
-                
                 for n, d in st.session_state.admin_att.items():
                     if d["p"]:
-                        # Fő ember
                         rows.append([n, "Yes", ts, st.session_state.admin_date])
-                        # Vendégek feldolgozása
-                        count = int(d["g"])
-                        for i in range(count):
-                            sel_key = f"admin_sel_{n}_{i}"
-                            txt_key = f"admin_txt_{n}_{i}"
-                            
-                            selection = st.session_state.get(sel_key)
-                            final_name = ""
-                            
-                            if selection == "-- Új név írása --":
-                                final_name = st.session_state.get(txt_key, "").strip()
-                            else:
-                                final_name = selection
-                            
-                            if final_name:
-                                rows.append([f"{n} - {final_name}", "Yes", ts, st.session_state.admin_date])
+                        for i in range(int(d["g"])):
+                            sel = st.session_state.get(f"admin_sel_{n}_{i}")
+                            final = st.session_state.get(f"admin_txt_{n}_{i}", "").strip() if sel == "-- Új név írása --" else sel
+                            if final: rows.append([f"{n} - {final}", "Yes", ts, st.session_state.admin_date])
                 
                 succ, msg = save_to_sheet(client, rows)
                 if succ:
-                    st.success("Sikeres mentés!")
+                    st.success("Kész!")
                     st.session_state.admin_step = 1
                     st.session_state.admin_att = {n: {"p": False, "g": "0"} for n in MAIN_NAME_LIST}
-                    time.sleep(2)
+                    time.sleep(1)
                     st.rerun()
-                else:
-                    st.error(f"Hiba: {msg}")
+
+def render_recent_submissions_page(df_all):
+    st.title("📝 Friss Beküldések")
+    
+    st.subheader("🔹 Ebben a munkamenetben felvitt adatok")
+    if st.session_state.session_submissions:
+        sdf = pd.DataFrame(st.session_state.session_submissions, columns=["Név", "Jön-e", "Regisztráció Időpontja", "Alkalom Dátuma"])
+        st.table(sdf)
+    else:
+        st.info("Még nem vittél fel adatot mióta megnyitottad az alkalmazást.")
+    
+    st.markdown("---")
+    st.subheader("📂 Legutóbbi 20 sor a Google Sheet-ből")
+    if not df_all.empty:
+        # A táblázat aljáról vesszük az utolsó 20-at
+        latest_rows = df_all.tail(20).iloc[::-1] # Megfordítjuk, hogy a legfrissebb legyen legfelül
+        st.dataframe(latest_rows, use_container_width=True)
+    else:
+        st.warning("Nem sikerült betölteni az adatokat.")
 
 def render_stats_page(df_all):
-    st.title("📊 Havi Statisztika")
+    st.title("📊 Statisztika")
     if not df_all.empty:
         m = build_monthly_stats(df_all)
         months = sorted(m.keys(), reverse=True)
-        sel_month = st.selectbox("Válassz hónapot:", months)
+        sel_month = st.selectbox("Hónap:", months)
         if sel_month:
             data = [{"Név": n, "Alkalom": c} for n, c in sorted(m[sel_month].items(), key=lambda x: (-x[1], x[0]))]
             st.dataframe(data, use_container_width=True)
-    else:
-        st.warning("Nincs adat.")
 
 def render_database_view(df_all):
-    st.title("🗂️ Nyers Adatok")
+    st.title("🗂️ Adatbázis")
     st.dataframe(df_all, use_container_width=True)
 
 # --- APP START ---
@@ -353,12 +318,14 @@ add_visual_styling()
 client = get_gsheet_connection()
 df_all = get_all_data(client)
 
-menu = st.sidebar.radio("Menü", ["Jelenléti Ív", "Admin Regisztráció", "Statisztika", "Adatbázis"])
+menu = st.sidebar.radio("Menü", ["Jelenléti Ív", "Admin Regisztráció", "Friss Beküldések", "Statisztika", "Adatbázis"])
 
 if menu == "Jelenléti Ív":
     render_main_page(client, df_all)
 elif menu == "Admin Regisztráció":
     render_admin_page(client, df_all)
+elif menu == "Friss Beküldések":
+    render_recent_submissions_page(df_all)
 elif menu == "Statisztika":
     render_stats_page(df_all)
 elif menu == "Adatbázis":
