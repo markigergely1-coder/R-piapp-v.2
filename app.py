@@ -432,8 +432,9 @@ def _get_smtp_connection():
     except Exception as e:
         raise Exception(f"SMTP kapcsolódási hiba: {e}")
 
-def send_personal_email(to_address, name, month_name, year, count, amount):
-    """Személyre szabott email küldése egy tagnak."""
+def send_personal_email(to_address, name, month_name, year, count, amount,
+                        own_count=None, guest_names=None):
+    """Személyre szabott email küldése egy tagnak, vendégek bontásával."""
     try:
         server, sender = _get_smtp_connection()
         msg = MIMEMultipart("alternative")
@@ -441,6 +442,25 @@ def send_personal_email(to_address, name, month_name, year, count, amount):
         msg["To"] = to_address
         msg["Subject"] = f"🏐 Röpi elszámolás — {year}. {month_name}"
         keresztnev = name.split()[0]
+
+        # Vendég sor összeállítása
+        has_guests = guest_names and guest_names != "—" and guest_names != ""
+        guest_row = ""
+        if has_guests:
+            guest_row = f"""
+              <tr style="background:#fff8e1;">
+                <td style="padding:10px; color:#888;">🧑‍🤝‍🧑 Vendégek</td>
+                <td style="padding:10px; text-align:right; color:#888;">{guest_names}</td>
+              </tr>"""
+
+        own_row = ""
+        if own_count is not None and has_guests:
+            own_row = f"""
+              <tr style="background:#f9f9f9;">
+                <td style="padding:10px; color:#555;">👤 Saját részvétel</td>
+                <td style="padding:10px; text-align:right; color:#555;">{own_count} alkalom</td>
+              </tr>"""
+
         html_body = f"""
         <html><body style="font-family: Arial, sans-serif; color: #333; max-width: 520px; margin: auto;">
           <div style="background: #f8f8f8; border-radius: 12px; padding: 28px;">
@@ -449,16 +469,23 @@ def send_personal_email(to_address, name, month_name, year, count, amount):
             <p>Elkészült a <strong>{year}. {month_name}</strong> havi elszámolás.</p>
             <table style="width:100%; border-collapse: collapse; margin: 16px 0; border-radius:8px; overflow:hidden;">
               <tr style="background:#4a90d9; color:white;">
-                <th style="padding:12px; text-align:left;">📅 Részvételek</th>
-                <th style="padding:12px; text-align:right;">💰 Fizetendő</th>
+                <th style="padding:12px; text-align:left;">Megnevezés</th>
+                <th style="padding:12px; text-align:right;">Részlet</th>
+              </tr>
+              {own_row}
+              {guest_row}
+              <tr style="background:#eaf4ff;">
+                <td style="padding:12px;"><strong>📅 Összes részvétel</strong></td>
+                <td style="padding:12px; text-align:right;"><strong>{count} alkalom</strong></td>
               </tr>
               <tr style="background:#fff;">
-                <td style="padding:14px; font-size:1.2em;"><strong>{count} alkalom</strong></td>
-                <td style="padding:14px; font-size:1.4em; text-align:right; color:#e74c3c;">
+                <td style="padding:14px; font-size:1.1em;">💰 <strong>Fizetendő összeg</strong></td>
+                <td style="padding:14px; font-size:1.3em; text-align:right; color:#e74c3c;">
                   <strong>{amount:,.0f} Ft</strong>
                 </td>
               </tr>
             </table>
+            {"<p style='color:#888; font-size:0.9em;'>ℹ️ A fizetendő összeg tartalmazza a vendégeid terembérleti díját is.</p>" if has_guests else ""}
             <p>Kérlek utald el a fenti összeget a szokásos számlaszámra! 🙏</p>
             <hr style="border:none; border-top:1px solid #ddd; margin:20px 0;">
             <p style="font-size:0.8em; color:#aaa; margin:0;">Ez egy automatikus üzenet — Röpi App Pro 🏐</p>
@@ -1027,7 +1054,24 @@ def render_members_page(fs_db, gs_client):
         df = get_members_fs(fs_db)
 
         with st.expander("➕ Új tag hozzáadása"):
-            new_name = st.text_input("Teljes név (pontosan, ahogy a jelenlétben szerepel):", key="new_m_name")
+            # Már meglévő tagok nevei a members DB-ből
+            existing_df = get_members_fs(fs_db)
+            existing_names = list(existing_df["Név"]) if not existing_df.empty else []
+            # Hardkódolt nevek akik még nincsenek hozzáadva
+            available_names = [n for n in MAIN_NAME_LIST if n not in existing_names]
+
+            name_options = ["-- Válassz a listából --"] + available_names + ["-- Egyéni név megadása --"]
+            selected_option = st.selectbox("Válassz egy nevet a listából:", name_options, key="new_m_select")
+
+            if selected_option == "-- Egyéni név megadása --":
+                new_name = st.text_input("Egyéni teljes név:", key="new_m_name_custom")
+            elif selected_option == "-- Válassz a listából --":
+                new_name = ""
+                st.caption("Válassz egy nevet, vagy add meg egyénileg.")
+            else:
+                new_name = selected_option
+                st.info(f"Kiválasztva: **{new_name}**")
+
             new_email = st.text_input("Email cím:", key="new_m_email")
             new_active = st.checkbox("Aktív tag", value=True, key="new_m_active")
             if st.button("💾 Mentés mindkét adatbázisba", type="primary"):
@@ -1178,13 +1222,32 @@ admin_email = "admin@example.com"
             else:
                 email_preview = []
                 for _, member in active_members.iterrows():
-                    match = df_osszesito[df_osszesito["Név"] == member["Név"]]
-                    if not match.empty:
+                    member_name = member["Név"]
+
+                    # Saját részvétel
+                    own_match = df_osszesito[df_osszesito["Név"] == member_name]
+                    own_count = int(own_match.iloc[0]["Részvétel száma"]) if not own_match.empty else 0
+                    own_cost = float(own_match.iloc[0]["Fizetendő (Ft)"]) if not own_match.empty else 0.0
+
+                    # Vendégek költsége: "TagNév - VendégNév" kezdetű sorok
+                    guest_prefix = f"{member_name} - "
+                    guest_rows = df_osszesito[df_osszesito["Név"].str.startswith(guest_prefix)]
+                    guest_count = int(guest_rows["Részvétel száma"].sum()) if not guest_rows.empty else 0
+                    guest_cost = float(guest_rows["Fizetendő (Ft)"].sum()) if not guest_rows.empty else 0.0
+
+                    total_count = own_count + guest_count
+                    total_cost = own_cost + guest_cost
+
+                    # Csak akkor adjuk hozzá ha van fizetési kötelezettsége
+                    if total_cost > 0:
+                        guest_names = list(guest_rows["Név"].str.replace(guest_prefix, "", regex=False)) if not guest_rows.empty else []
                         email_preview.append({
-                            "Név": member["Név"],
+                            "Név": member_name,
                             "Email": member["Email"],
-                            "Részvétel": int(match.iloc[0]["Részvétel száma"]),
-                            "Fizetendő (Ft)": float(match.iloc[0]["Fizetendő (Ft)"]),
+                            "Saját részvétel": own_count,
+                            "Vendégek": ", ".join(guest_names) if guest_names else "—",
+                            "Összes részvétel": total_count,
+                            "Fizetendő (Ft)": total_cost,
                             "📧 Küldés?": True,
                         })
 
@@ -1201,7 +1264,7 @@ admin_email = "admin@example.com"
                             "📧 Küldés?": st.column_config.CheckboxColumn("📧 Küldés?"),
                             "Fizetendő (Ft)": st.column_config.NumberColumn(format="%.0f Ft"),
                         },
-                        disabled=["Név", "Email", "Részvétel", "Fizetendő (Ft)"],
+                        disabled=["Név", "Email", "Saját részvétel", "Vendégek", "Összes részvétel", "Fizetendő (Ft)"],
                         use_container_width=True,
                         hide_index=True
                     )
@@ -1223,8 +1286,10 @@ admin_email = "admin@example.com"
                                         name=row["Név"],
                                         month_name=month_name,
                                         year=year,
-                                        count=row["Részvétel"],
-                                        amount=row["Fizetendő (Ft)"]
+                                        count=row["Összes részvétel"],
+                                        amount=row["Fizetendő (Ft)"],
+                                        own_count=row["Saját részvétel"],
+                                        guest_names=row["Vendégek"]
                                     )
                                     if ok:
                                         success_count += 1
