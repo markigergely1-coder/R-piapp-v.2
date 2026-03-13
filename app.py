@@ -922,12 +922,12 @@ def render_database_page(gs_client, fs_db, logged_in=False):
                 col_sort_fs, col_order_fs = st.columns([2, 1])
                 with col_sort_fs:
                     sortable_cols = [c for c in df_fs.columns if c != "ID"]
-                    sort_col_fs = st.selectbox("Rendezés alapja:", sortable_cols, index=2, key="sort2")
+                    sort_col_fs = st.selectbox("Rendezés alapja:", sortable_cols, index=2, key="sort2_1")
                 with col_order_fs:
-                    ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="asc2")
+                    ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="asc2_1")
                 df_fs = df_fs.sort_values(by=sort_col_fs, ascending=ascending_fs).reset_index(drop=True)
 
-                edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
+                edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása", key="edit_toggle_1")
                 if edit_mode:
                     st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
                     st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
@@ -969,7 +969,7 @@ def render_database_page(gs_client, fs_db, logged_in=False):
             invoices = get_invoices_fs(fs_db)
             if invoices:
                 df_inv = pd.DataFrame(invoices)
-                edit_mode_inv = st.toggle("✏️ Számlák szerkesztése", key="toggle_inv")
+                edit_mode_inv = st.toggle("✏️ Számlák szerkesztése", key="inv_toggle_1")
                 col_sort_inv, col_order_inv = st.columns([2, 1])
                 with col_sort_inv:
                     sortable_cols_inv = [c for c in df_inv.columns if c != "ID"]
@@ -1168,11 +1168,11 @@ def render_database_page(gs_client, fs_db, logged_in=False):
                     ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="db_fs_asc")
                 df_fs = df_fs.sort_values(by=sort_col_fs, ascending=ascending_fs).reset_index(drop=True)
 
-                edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
+                edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása", key="edit_toggle_2")
 
                 if edit_mode:
                     st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
-                    st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
+                    st.data_editor(df_fs, key="fs_editor_2", num_rows="dynamic",
                                    column_config={"ID": None}, use_container_width=True)
                     if st.button("💾 Változtatások mentése a felhőbe", type="primary"):
                         changes = st.session_state["fs_editor"]
@@ -1211,7 +1211,7 @@ def render_database_page(gs_client, fs_db, logged_in=False):
             invoices = get_invoices_fs(fs_db)
             if invoices:
                 df_inv = pd.DataFrame(invoices)
-                edit_mode_inv = st.toggle("✏️ Számlák szerkesztése", key="toggle_inv")
+                edit_mode_inv = st.toggle("✏️ Számlák szerkesztése", key="inv_toggle_2")
                 col_sort_inv, col_order_inv = st.columns([2, 1])
                 with col_sort_inv:
                     sortable_cols_inv = [c for c in df_inv.columns if c != "ID"]
@@ -1324,7 +1324,7 @@ def render_members_page(fs_db, gs_client):
         if df.empty:
             st.info("Még nincsenek tagok. Add hozzá őket fentebb!")
         else:
-            edit_mode = st.toggle("✏️ Szerkesztés mód")
+            edit_mode = st.toggle("✏️ Szerkesztés mód", key="edit_toggle_members")
             if edit_mode:
                 st.info("💡 Szerkeszd a cellákat, majd kattints a Mentés gombra. A változtatások mindkét adatbázisba elmentődnek.")
                 edited = st.data_editor(
