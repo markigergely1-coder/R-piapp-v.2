@@ -786,161 +786,172 @@ def render_attendance_overview_page(fs_db):
             else:
                 st.info("Erre az alkalomra nincs érvényes regisztráció.")
 
-def render_database_page(gs_client, fs_db):
+def render_database_page(gs_client, fs_db, logged_in=False):
     st.title("🗂️ Adatbázis")
-    tab1, tab2, tab3 = st.tabs(["📝 Beküldött Adatok (Sheet)", "☁️ Felhő Adatok (Firestore)", "🏆 Ranglista"])
 
-    with tab1:
-        st.subheader("Google Sheet adatok megtekintése")
-        rows = get_attendance_rows_gs(gs_client)
-        if rows:
-            cols = rows[0][:6]
-            while len(cols) < 6:
-                cols.append(f"Oszlop {len(cols)+1}")
-            df_data = [r[:6] + [""] * (6 - len(r[:6])) for r in rows[1:]]
-            df = pd.DataFrame(df_data, columns=cols)
-            col_sort, col_order = st.columns([2, 1])
-            with col_sort:
-                sort_col = st.selectbox("Rendezés alapja:", df.columns, index=2, key="sort1")
-            with col_order:
-                ascending = st.checkbox("Növekvő sorrend", value=False, key="asc1")
-            st.dataframe(df.sort_values(by=sort_col, ascending=ascending), use_container_width=True)
-        else:
-            st.warning("Nem sikerült betölteni a Google Sheets adatokat.")
+    if logged_in:
+        tab1, tab2, tab3 = st.tabs(["📝 Beküldött Adatok (Sheet)", "☁️ Felhő Adatok (Firestore)", "🏆 Ranglista"])
+    else:
+        tab2, tab3 = st.tabs(["☁️ Felhő Adatok (Firestore)", "🏆 Ranglista"])
+
+    if logged_in:
+        with tab1:
+            st.subheader("Google Sheet adatok megtekintése")
+            rows = get_attendance_rows_gs(gs_client)
+            if rows:
+                cols = rows[0][:6]
+                while len(cols) < 6:
+                    cols.append(f"Oszlop {len(cols)+1}")
+                df_data = [r[:6] + [""] * (6 - len(r[:6])) for r in rows[1:]]
+                df = pd.DataFrame(df_data, columns=cols)
+                col_sort, col_order = st.columns([2, 1])
+                with col_sort:
+                    sort_col = st.selectbox("Rendezés alapja:", df.columns, index=2, key="sort1")
+                with col_order:
+                    ascending = st.checkbox("Növekvő sorrend", value=False, key="asc1")
+                st.dataframe(df.sort_values(by=sort_col, ascending=ascending), use_container_width=True)
+            else:
+                st.warning("Nem sikerült betölteni a Google Sheets adatokat.")
 
     with tab2:
-        st.subheader("Firestore Adatbázis megtekintése és szerkesztése")
-        st.markdown("---")
-        with st.expander("🔄 Adatok Szinkronizálása (Sheet ↔ Firestore)"):
-            st.warning("⚠️ A szinkronizálás felülírja a céladatbázist!")
-            sync_source = st.radio("Melyik legyen a FORRÁS?", ["Google Sheets", "Firestore"], horizontal=True)
-            sync_target = "Firestore" if sync_source == "Google Sheets" else "Google Sheets"
-            st.info(f"👉 Irány: **{sync_source}** ➡️ **{sync_target}**")
+        st.subheader("Firestore Adatbázis")
 
-            col_m1, col_m2, col_m3 = st.columns(3)
+        if logged_in:
+            # --- SZINKRONIZÁCIÓS SZEKCIÓ (csak bejelentkezve) ---
+            st.markdown("---")
+            with st.expander("🔄 Adatok Szinkronizálása (Sheet ↔ Firestore)"):
+                st.warning("⚠️ A szinkronizálás felülírja a céladatbázist!")
+                sync_source = st.radio("Melyik legyen a FORRÁS?", ["Google Sheets", "Firestore"], horizontal=True)
+                sync_target = "Firestore" if sync_source == "Google Sheets" else "Google Sheets"
+                st.info(f"👉 Irány: **{sync_source}** ➡️ **{sync_target}**")
 
-            with col_m1:
-                if st.button("👥 Jelenlét szinkronizálása", type="primary", use_container_width=True):
-                    with st.spinner("Folyamatban..."):
-                        if sync_source == "Google Sheets":
-                            gs_rows = get_attendance_rows_gs(gs_client)
-                            if len(gs_rows) > 1:
-                                for doc in fs_db.collection(FIRESTORE_COLLECTION).stream():
-                                    doc.reference.delete()
-                                count = 0
-                                for r in gs_rows[1:]:
-                                    try:
-                                        name = r[0] if len(r) > 0 else ""
-                                        if not name:
-                                            continue
-                                        fs_db.collection(FIRESTORE_COLLECTION).add({
-                                            "name": name,
-                                            "status": r[1] if len(r) > 1 else "Yes",
-                                            "timestamp": r[2] if len(r) > 2 else "",
-                                            "event_date": r[3] if len(r) > 3 else "",
-                                            "mode": "valós"
-                                        })
-                                        count += 1
-                                    except Exception:
-                                        pass
-                                st.success(f"Kész! {count} adat átmásolva a Firestore-ba.")
-                            else:
-                                st.info("Nincs másolható adat a Sheet-ben.")
-                        else:
-                            df_fs = get_attendance_rows_fs(fs_db)
-                            if not df_fs.empty:
-                                try:
-                                    sheet = gs_client.open(GSHEET_NAME).sheet1
-                                    sheet.clear()
-                                    new_rows = [["Név", "Jön-e", "Regisztráció Időpontja", "Alkalom Dátuma", "Üres", "Mód"]]
-                                    for _, row in df_fs.iterrows():
-                                        new_rows.append([row["Név"], row["Jön-e"], row["Regisztráció Időpontja"], row["Alkalom Dátuma"], "", "valós"])
-                                    sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
-                                    st.success(f"Kész! {len(new_rows)-1} adat átmásolva a Sheet-be.")
-                                except Exception as e:
-                                    st.error(f"Hiba: {e}")
-                        st.cache_data.clear()
-                        time.sleep(2)
-                        st.rerun()
+                col_m1, col_m2, col_m3 = st.columns(3)
 
-            with col_m2:
-                if st.button("🧾 Számlák szinkronizálása", type="primary", use_container_width=True):
-                    with st.spinner("Folyamatban..."):
-                        try:
-                            ss = gs_client.open(GSHEET_NAME)
-                            ws_titles = [w.title for w in ss.worksheets()]
-                            szamlak_sheet = ss.worksheet("Szamlak") if "Szamlak" in ws_titles else ss.worksheet("szamlak")
+                with col_m1:
+                    if st.button("👥 Jelenlét szinkronizálása", type="primary", use_container_width=True):
+                        with st.spinner("Folyamatban..."):
                             if sync_source == "Google Sheets":
-                                rows = szamlak_sheet.get_all_values()
-                                if len(rows) > 1:
-                                    for doc in fs_db.collection(FIRESTORE_INVOICES).stream():
+                                gs_rows = get_attendance_rows_gs(gs_client)
+                                if len(gs_rows) > 1:
+                                    for doc in fs_db.collection(FIRESTORE_COLLECTION).stream():
                                         doc.reference.delete()
                                     count = 0
-                                    for r in rows[1:]:
-                                        if not r[0]:
-                                            continue
-                                        inv_date = parse_date_str(r[0])
-                                        if not inv_date:
-                                            continue
+                                    for r in gs_rows[1:]:
                                         try:
-                                            amount = float(str(r[1]).replace(' ', '').replace('Ft', '').replace('HUF', '').replace('\xa0', ''))
+                                            name = r[0] if len(r) > 0 else ""
+                                            if not name:
+                                                continue
+                                            fs_db.collection(FIRESTORE_COLLECTION).add({
+                                                "name": name,
+                                                "status": r[1] if len(r) > 1 else "Yes",
+                                                "timestamp": r[2] if len(r) > 2 else "",
+                                                "event_date": r[3] if len(r) > 3 else "",
+                                                "mode": "valós"
+                                            })
+                                            count += 1
                                         except Exception:
-                                            continue
-                                        t_month = 12 if inv_date.month == 1 else inv_date.month - 1
-                                        t_year = inv_date.year - 1 if inv_date.month == 1 else inv_date.year
-                                        fs_db.collection(FIRESTORE_INVOICES).add({
-                                            "inv_date": inv_date.strftime("%Y-%m-%d"),
-                                            "target_year": t_year,
-                                            "target_month": t_month,
-                                            "amount": amount,
-                                            "filename": r[2] if len(r) > 2 else ""
-                                        })
-                                        count += 1
-                                    st.success(f"Kész! {count} számla átmásolva.")
+                                            pass
+                                    st.success(f"Kész! {count} adat átmásolva a Firestore-ba.")
                                 else:
-                                    st.info("Nincs számla a Sheet-ben.")
+                                    st.info("Nincs másolható adat a Sheet-ben.")
                             else:
-                                invoices = get_invoices_fs(fs_db)
-                                if invoices:
-                                    szamlak_sheet.clear()
-                                    new_rows = [["Dátum", "Összeg", "Fájlnév"]]
-                                    for inv in invoices:
-                                        new_rows.append([inv["inv_date"], f"{int(inv['amount'])} Ft", inv.get("filename", "")])
-                                    szamlak_sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
-                                    st.success(f"Kész! {len(invoices)} számla átmásolva.")
-                                else:
-                                    st.info("Nincs számla a Firestore-ban.")
+                                df_fs = get_attendance_rows_fs(fs_db)
+                                if not df_fs.empty:
+                                    try:
+                                        sheet = gs_client.open(GSHEET_NAME).sheet1
+                                        sheet.clear()
+                                        new_rows = [["Név", "Jön-e", "Regisztráció Időpontja", "Alkalom Dátuma", "Üres", "Mód"]]
+                                        for _, row in df_fs.iterrows():
+                                            new_rows.append([row["Név"], row["Jön-e"], row["Regisztráció Időpontja"], row["Alkalom Dátuma"], "", "valós"])
+                                        sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
+                                        st.success(f"Kész! {len(new_rows)-1} adat átmásolva a Sheet-be.")
+                                    except Exception as e:
+                                        st.error(f"Hiba: {e}")
                             st.cache_data.clear()
                             time.sleep(2)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Szinkronizálási hiba: {e}")
 
-            with col_m3:
-                if st.button("👤 Tagok szinkronizálása", type="primary", use_container_width=True):
-                    with st.spinner("Folyamatban..."):
-                        if sync_source == "Google Sheets":
-                            ok, msg = sync_members_gs_to_fs(gs_client, fs_db)
-                            get_members_fs.clear()
-                        else:
-                            ok, msg = sync_members_fs_to_gs(fs_db, gs_client)
-                        if ok:
-                            st.success(f"✅ {msg}")
-                        else:
-                            st.error(f"❌ {msg}")
-                        st.cache_data.clear()
-                        time.sleep(2)
-                        st.rerun()
+                with col_m2:
+                    if st.button("🧾 Számlák szinkronizálása", type="primary", use_container_width=True):
+                        with st.spinner("Folyamatban..."):
+                            try:
+                                ss = gs_client.open(GSHEET_NAME)
+                                ws_titles = [w.title for w in ss.worksheets()]
+                                szamlak_sheet = ss.worksheet("Szamlak") if "Szamlak" in ws_titles else ss.worksheet("szamlak")
+                                if sync_source == "Google Sheets":
+                                    rows = szamlak_sheet.get_all_values()
+                                    if len(rows) > 1:
+                                        for doc in fs_db.collection(FIRESTORE_INVOICES).stream():
+                                            doc.reference.delete()
+                                        count = 0
+                                        for r in rows[1:]:
+                                            if not r[0]:
+                                                continue
+                                            inv_date = parse_date_str(r[0])
+                                            if not inv_date:
+                                                continue
+                                            try:
+                                                amount = float(str(r[1]).replace(' ', '').replace('Ft', '').replace('HUF', '').replace('\xa0', ''))
+                                            except Exception:
+                                                continue
+                                            t_month = 12 if inv_date.month == 1 else inv_date.month - 1
+                                            t_year = inv_date.year - 1 if inv_date.month == 1 else inv_date.year
+                                            fs_db.collection(FIRESTORE_INVOICES).add({
+                                                "inv_date": inv_date.strftime("%Y-%m-%d"),
+                                                "target_year": t_year,
+                                                "target_month": t_month,
+                                                "amount": amount,
+                                                "filename": r[2] if len(r) > 2 else ""
+                                            })
+                                            count += 1
+                                        st.success(f"Kész! {count} számla átmásolva.")
+                                    else:
+                                        st.info("Nincs számla a Sheet-ben.")
+                                else:
+                                    invoices = get_invoices_fs(fs_db)
+                                    if invoices:
+                                        szamlak_sheet.clear()
+                                        new_rows = [["Dátum", "Összeg", "Fájlnév"]]
+                                        for inv in invoices:
+                                            new_rows.append([inv["inv_date"], f"{int(inv['amount'])} Ft", inv.get("filename", "")])
+                                        szamlak_sheet.append_rows(new_rows, value_input_option='USER_ENTERED')
+                                        st.success(f"Kész! {len(invoices)} számla átmásolva.")
+                                    else:
+                                        st.info("Nincs számla a Firestore-ban.")
+                                st.cache_data.clear()
+                                time.sleep(2)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Szinkronizálási hiba: {e}")
 
-        st.markdown("---")
-        view_selection = st.radio("Mit szeretnél megtekinteni/szerkeszteni?",
-                                  ["👥 Jelenléti adatok", "🧾 Számlák"], horizontal=True)
-        st.markdown("---")
+                with col_m3:
+                    if st.button("👤 Tagok szinkronizálása", type="primary", use_container_width=True):
+                        with st.spinner("Folyamatban..."):
+                            if sync_source == "Google Sheets":
+                                ok, msg = sync_members_gs_to_fs(gs_client, fs_db)
+                                get_members_fs.clear()
+                            else:
+                                ok, msg = sync_members_fs_to_gs(fs_db, gs_client)
+                            if ok:
+                                st.success(f"✅ {msg}")
+                            else:
+                                st.error(f"❌ {msg}")
+                            st.cache_data.clear()
+                            time.sleep(2)
+                            st.rerun()
 
+            st.markdown("---")
+            view_selection = st.radio("Mit szeretnél megtekinteni/szerkeszteni?",
+                                      ["👥 Jelenléti adatok", "🧾 Számlák"], horizontal=True)
+            st.markdown("---")
+        else:
+            # Nem bejelentkezett: automatikusan jelenléti adatokat mutatunk
+            view_selection = "👥 Jelenléti adatok"
+
+        # --- JELENLÉTI ADATOK ---
         if view_selection == "👥 Jelenléti adatok":
             df_fs = get_attendance_rows_fs(fs_db)
             if not df_fs.empty:
-                edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
                 col_sort_fs, col_order_fs = st.columns([2, 1])
                 with col_sort_fs:
                     sortable_cols = [c for c in df_fs.columns if c != "ID"]
@@ -949,43 +960,49 @@ def render_database_page(gs_client, fs_db):
                     ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="asc2")
                 df_fs = df_fs.sort_values(by=sort_col_fs, ascending=ascending_fs).reset_index(drop=True)
 
-                if edit_mode:
-                    st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
-                    edited_df = st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
-                                               column_config={"ID": None}, use_container_width=True)
-                    if st.button("💾 Változtatások mentése a felhőbe", type="primary"):
-                        changes = st.session_state["fs_editor"]
-                        if changes.get("edited_rows") or changes.get("added_rows") or changes.get("deleted_rows"):
-                            try:
-                                for row_idx in changes.get("deleted_rows", []):
-                                    fs_db.collection(FIRESTORE_COLLECTION).document(df_fs.iloc[row_idx]["ID"]).delete()
-                                col_map = {"Név": "name", "Jön-e": "status", "Regisztráció Időpontja": "timestamp",
-                                           "Alkalom Dátuma": "event_date", "Mód": "mode"}
-                                for row_idx, edits in changes.get("edited_rows", {}).items():
-                                    doc_id = df_fs.iloc[row_idx]["ID"]
-                                    update_data = {col_map[k]: v for k, v in edits.items() if k in col_map}
-                                    if update_data:
-                                        fs_db.collection(FIRESTORE_COLLECTION).document(doc_id).update(update_data)
-                                for new_row in changes.get("added_rows", []):
-                                    fs_db.collection(FIRESTORE_COLLECTION).add({
-                                        "name": new_row.get("Név", ""), "status": new_row.get("Jön-e", "Yes"),
-                                        "timestamp": new_row.get("Regisztráció Időpontja", datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d %H:%M:%S")),
-                                        "event_date": new_row.get("Alkalom Dátuma", ""), "mode": new_row.get("Mód", "valós")
-                                    })
-                                st.success("Sikeresen frissítetted a felhő adatbázist! ✅")
-                                st.cache_data.clear()
-                                time.sleep(1.5)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Mentési hiba: {e}")
-                        else:
-                            st.info("Nem történt változtatás.")
+                if logged_in:
+                    edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
+                    if edit_mode:
+                        st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
+                        edited_df = st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
+                                                   column_config={"ID": None}, use_container_width=True)
+                        if st.button("💾 Változtatások mentése a felhőbe", type="primary"):
+                            changes = st.session_state["fs_editor"]
+                            if changes.get("edited_rows") or changes.get("added_rows") or changes.get("deleted_rows"):
+                                try:
+                                    for row_idx in changes.get("deleted_rows", []):
+                                        fs_db.collection(FIRESTORE_COLLECTION).document(df_fs.iloc[row_idx]["ID"]).delete()
+                                    col_map = {"Név": "name", "Jön-e": "status", "Regisztráció Időpontja": "timestamp",
+                                               "Alkalom Dátuma": "event_date", "Mód": "mode"}
+                                    for row_idx, edits in changes.get("edited_rows", {}).items():
+                                        doc_id = df_fs.iloc[row_idx]["ID"]
+                                        update_data = {col_map[k]: v for k, v in edits.items() if k in col_map}
+                                        if update_data:
+                                            fs_db.collection(FIRESTORE_COLLECTION).document(doc_id).update(update_data)
+                                    for new_row in changes.get("added_rows", []):
+                                        fs_db.collection(FIRESTORE_COLLECTION).add({
+                                            "name": new_row.get("Név", ""), "status": new_row.get("Jön-e", "Yes"),
+                                            "timestamp": new_row.get("Regisztráció Időpontja", datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d %H:%M:%S")),
+                                            "event_date": new_row.get("Alkalom Dátuma", ""), "mode": new_row.get("Mód", "valós")
+                                        })
+                                    st.success("Sikeresen frissítetted a felhő adatbázist! ✅")
+                                    st.cache_data.clear()
+                                    time.sleep(1.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Mentési hiba: {e}")
+                            else:
+                                st.info("Nem történt változtatás.")
+                    else:
+                        st.dataframe(df_fs.drop(columns=["ID"]), use_container_width=True)
                 else:
+                    # Vendég: csak olvasható nézet
                     st.dataframe(df_fs.drop(columns=["ID"]), use_container_width=True)
             else:
                 st.info("Még nincsenek adatok a Firestore adatbázisban.")
 
-        elif view_selection == "🧾 Számlák":
+        # --- SZÁMLÁK (csak bejelentkezve) ---
+        elif view_selection == "🧾 Számlák" and logged_in:
             invoices = get_invoices_fs(fs_db)
             if invoices:
                 df_inv = pd.DataFrame(invoices)
@@ -1446,7 +1463,7 @@ st.sidebar.title("🏐 Röpi App Pro")
 st.sidebar.markdown("---")
 
 # Nyilvános oldalak — mindenki látja
-PUBLIC_PAGES = ["Admin Regisztráció", "Alkalmak Áttekintése"]
+PUBLIC_PAGES = ["Admin Regisztráció", "Alkalmak Áttekintése", "Adatbázis"]
 # Védett oldalak — csak bejelentkezve
 PRIVATE_PAGES = ["Adatbázis", "Havi Elszámolás", "👤 Tagok & Email", "Beállítások (Kivételek)"]
 
@@ -1482,8 +1499,7 @@ if page == "Admin Regisztráció":
 elif page == "Alkalmak Áttekintése":
     render_attendance_overview_page(fs_db)
 elif page == "Adatbázis":
-    if st.session_state.logged_in:
-        render_database_page(gs_client, fs_db)
+    render_database_page(gs_client, fs_db, logged_in=st.session_state.logged_in)
 elif page == "Havi Elszámolás":
     if st.session_state.logged_in:
         render_accounting_page(fs_db, gs_client)
