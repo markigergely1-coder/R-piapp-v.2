@@ -1163,47 +1163,44 @@ def render_database_page(gs_client, fs_db, logged_in=False):
                 col_sort_fs, col_order_fs = st.columns([2, 1])
                 with col_sort_fs:
                     sortable_cols = [c for c in df_fs.columns if c != "ID"]
-                    sort_col_fs = st.selectbox("Rendezés alapja:", sortable_cols, index=2, key="sort2")
+                    sort_col_fs = st.selectbox("Rendezés alapja:", sortable_cols, index=2, key="db_fs_sort")
                 with col_order_fs:
-                    ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="asc2")
+                    ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="db_fs_asc")
                 df_fs = df_fs.sort_values(by=sort_col_fs, ascending=ascending_fs).reset_index(drop=True)
 
                 edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
 
                 if edit_mode:
                     st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
-                    edited_df = st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
-                                               column_config={"ID": None}, use_container_width=True)
-                    if logged_in:
-                        if st.button("💾 Változtatások mentése a felhőbe", type="primary"):
-                            changes = st.session_state["fs_editor"]
-                            if changes.get("edited_rows") or changes.get("added_rows") or changes.get("deleted_rows"):
-                                try:
-                                    for row_idx in changes.get("deleted_rows", []):
-                                        fs_db.collection(FIRESTORE_COLLECTION).document(df_fs.iloc[row_idx]["ID"]).delete()
-                                    col_map = {"Név": "name", "Jön-e": "status", "Regisztráció Időpontja": "timestamp",
-                                               "Alkalom Dátuma": "event_date", "Mód": "mode"}
-                                    for row_idx, edits in changes.get("edited_rows", {}).items():
-                                        doc_id = df_fs.iloc[row_idx]["ID"]
-                                        update_data = {col_map[k]: v for k, v in edits.items() if k in col_map}
-                                        if update_data:
-                                            fs_db.collection(FIRESTORE_COLLECTION).document(doc_id).update(update_data)
-                                    for new_row in changes.get("added_rows", []):
-                                        fs_db.collection(FIRESTORE_COLLECTION).add({
-                                            "name": new_row.get("Név", ""), "status": new_row.get("Jön-e", "Yes"),
-                                            "timestamp": new_row.get("Regisztráció Időpontja", datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d %H:%M:%S")),
-                                            "event_date": new_row.get("Alkalom Dátuma", ""), "mode": new_row.get("Mód", "valós")
-                                        })
-                                    st.success("Sikeresen frissítetted a felhő adatbázist! ✅")
-                                    st.cache_data.clear()
-                                    time.sleep(1.5)
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Mentési hiba: {e}")
-                            else:
-                                st.info("Nem történt változtatás.")
-                    else:
-                        st.info("💡 A módosítások mentéséhez jelentkezz be!")
+                    st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
+                                   column_config={"ID": None}, use_container_width=True)
+                    if st.button("💾 Változtatások mentése a felhőbe", type="primary"):
+                        changes = st.session_state["fs_editor"]
+                        if changes.get("edited_rows") or changes.get("added_rows") or changes.get("deleted_rows"):
+                            try:
+                                for row_idx in changes.get("deleted_rows", []):
+                                    fs_db.collection(FIRESTORE_COLLECTION).document(df_fs.iloc[row_idx]["ID"]).delete()
+                                col_map = {"Név": "name", "Jön-e": "status", "Regisztráció Időpontja": "timestamp",
+                                           "Alkalom Dátuma": "event_date", "Mód": "mode"}
+                                for row_idx, edits in changes.get("edited_rows", {}).items():
+                                    doc_id = df_fs.iloc[row_idx]["ID"]
+                                    update_data = {col_map[k]: v for k, v in edits.items() if k in col_map}
+                                    if update_data:
+                                        fs_db.collection(FIRESTORE_COLLECTION).document(doc_id).update(update_data)
+                                for new_row in changes.get("added_rows", []):
+                                    fs_db.collection(FIRESTORE_COLLECTION).add({
+                                        "name": new_row.get("Név", ""), "status": new_row.get("Jön-e", "Yes"),
+                                        "timestamp": new_row.get("Regisztráció Időpontja", datetime.now(HUNGARY_TZ).strftime("%Y-%m-%d %H:%M:%S")),
+                                        "event_date": new_row.get("Alkalom Dátuma", ""), "mode": new_row.get("Mód", "valós")
+                                    })
+                                st.success("Sikeresen frissítetted a felhő adatbázist! ✅")
+                                st.cache_data.clear()
+                                time.sleep(1.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Mentési hiba: {e}")
+                        else:
+                            st.info("Nem történt változtatás.")
                 else:
                     st.dataframe(df_fs.drop(columns=["ID"]), use_container_width=True)
             else:
