@@ -1,5 +1,8 @@
 streamlit
-pandas
 gspread
 oauth2client
-pdfplumber
+google-cloud-firestore
+google-auth
+pytz
+pandas
+fpdf2
