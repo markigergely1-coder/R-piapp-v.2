@@ -960,12 +960,13 @@ def render_database_page(gs_client, fs_db, logged_in=False):
                     ascending_fs = st.checkbox("Növekvő sorrend", value=False, key="asc2")
                 df_fs = df_fs.sort_values(by=sort_col_fs, ascending=ascending_fs).reset_index(drop=True)
 
-                if logged_in:
-                    edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
-                    if edit_mode:
-                        st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
-                        edited_df = st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
-                                                   column_config={"ID": None}, use_container_width=True)
+                edit_mode = st.toggle("✏️ Szerkesztés mód bekapcsolása")
+
+                if edit_mode:
+                    st.info("💡 Kattints duplán a cellákra a szerkesztéshez! Törléshez jelöld ki a sort és nyomj **Delete**-t.")
+                    edited_df = st.data_editor(df_fs, key="fs_editor", num_rows="dynamic",
+                                               column_config={"ID": None}, use_container_width=True)
+                    if logged_in:
                         if st.button("💾 Változtatások mentése a felhőbe", type="primary"):
                             changes = st.session_state["fs_editor"]
                             if changes.get("edited_rows") or changes.get("added_rows") or changes.get("deleted_rows"):
@@ -994,9 +995,8 @@ def render_database_page(gs_client, fs_db, logged_in=False):
                             else:
                                 st.info("Nem történt változtatás.")
                     else:
-                        st.dataframe(df_fs.drop(columns=["ID"]), use_container_width=True)
+                        st.info("💡 A módosítások mentéséhez jelentkezz be!")
                 else:
-                    # Vendég: csak olvasható nézet
                     st.dataframe(df_fs.drop(columns=["ID"]), use_container_width=True)
             else:
                 st.info("Még nincsenek adatok a Firestore adatbázisban.")
