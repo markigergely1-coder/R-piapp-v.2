@@ -678,7 +678,30 @@ def render_attendance_overview_page(fs_db):
 
 def render_database_page(gs_client, fs_db, logged_in=False):
     st.title("🗂️ Adatbázis")
-    tab_firestore, tab_ranglista = st.tabs(["☁️ Felhő Adatok (Firestore)", "🏆 Ranglista"])
+
+    if logged_in:
+        tab_sheet, tab_firestore, tab_ranglista = st.tabs(["📝 Beküldött Adatok (Sheet)", "☁️ Felhő Adatok (Firestore)", "🏆 Ranglista"])
+    else:
+        tab_firestore, tab_ranglista = st.tabs(["☁️ Felhő Adatok (Firestore)", "🏆 Ranglista"])
+
+    if logged_in:
+        with tab_sheet:
+            st.subheader("Google Sheet adatok megtekintése")
+            rows = get_attendance_rows_gs(gs_client)
+            if rows:
+                cols = rows[0][:6]
+                while len(cols) < 6:
+                    cols.append(f"Oszlop {len(cols)+1}")
+                df_data = [r[:6] + [""] * (6 - len(r[:6])) for r in rows[1:]]
+                df = pd.DataFrame(df_data, columns=cols)
+                col_sort, col_order = st.columns([2, 1])
+                with col_sort:
+                    sort_col = st.selectbox("Rendezés alapja:", df.columns, index=2, key="sheet_sort_col")
+                with col_order:
+                    ascending = st.checkbox("Növekvő sorrend", value=False, key="sheet_asc")
+                st.dataframe(df.sort_values(by=sort_col, ascending=ascending), use_container_width=True)
+            else:
+                st.warning("Nem sikerült betölteni a Google Sheets adatokat.")
 
     with tab_firestore:
         st.subheader("Firestore Adatbázis")
