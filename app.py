@@ -1421,12 +1421,12 @@ def check_login(email_input, password_input):
 def render_login_dialog():
     """Bejelentkezési form a sidebarban."""
     with st.sidebar.expander("🔐 Bejelentkezés", expanded=True):
-        login_email = st.text_input("Email cím:", key="login_email")
-        login_password = st.text_input("Jelszó:", type="password", key="login_password")
+        login_email = st.text_input("Email cím:", key="input_login_email")
+        login_password = st.text_input("Jelszó:", type="password", key="input_login_password")
         if st.button("Belépés", type="primary", use_container_width=True):
             if check_login(login_email, login_password):
                 st.session_state.logged_in = True
-                st.session_state.login_email = login_email
+                st.session_state.logged_in_as = login_email
                 st.rerun()
             else:
                 st.error("Hibás email vagy jelszó!")
@@ -1450,7 +1450,7 @@ if st.session_state.logged_in:
         st.markdown(f"👤 Bejelentkezve")
         if st.button("🚪 Kijelentkezés", use_container_width=True):
             st.session_state.logged_in = False
-            st.session_state.pop("login_email", None)
+            st.session_state.pop("logged_in_as", None)
             st.rerun()
 else:
     page = st.sidebar.radio("Menü", PUBLIC_PAGES)
