@@ -1407,20 +1407,57 @@ if 'admin_step' not in st.session_state:
     reset_admin_form()
 if 'admin_date' not in st.session_state:
     st.session_state.admin_date = generate_tuesday_dates()[0]
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+# --- BEJELENTKEZÉSI LOGIKA ---
+def check_login(email_input, password_input):
+    try:
+        correct_password = st.secrets["auth"]["password"]
+    except Exception:
+        correct_password = "Gergo2010"  # fallback ha nincs secrets
+    return password_input == correct_password and "@" in email_input
+
+def render_login_dialog():
+    """Bejelentkezési form a sidebarban."""
+    with st.sidebar.expander("🔐 Bejelentkezés", expanded=True):
+        login_email = st.text_input("Email cím:", key="login_email")
+        login_password = st.text_input("Jelszó:", type="password", key="login_password")
+        if st.button("Belépés", type="primary", use_container_width=True):
+            if check_login(login_email, login_password):
+                st.session_state.logged_in = True
+                st.session_state.login_email = login_email
+                st.rerun()
+            else:
+                st.error("Hibás email vagy jelszó!")
 
 # --- SIDEBAR ---
 st.sidebar.title("🏐 Röpi App Pro")
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Menü", [
-    "Admin Regisztráció",
-    "Alkalmak Áttekintése",
-    "Adatbázis",
-    "Havi Elszámolás",
-    "👤 Tagok & Email",
-    "Beállítások (Kivételek)"
-])
 
-# Kapcsolat státusz a sidebarban
+# Nyilvános oldalak — mindenki látja
+PUBLIC_PAGES = ["Admin Regisztráció", "Alkalmak Áttekintése"]
+# Védett oldalak — csak bejelentkezve
+PRIVATE_PAGES = ["Adatbázis", "Havi Elszámolás", "👤 Tagok & Email", "Beállítások (Kivételek)"]
+
+if st.session_state.logged_in:
+    all_pages = PUBLIC_PAGES + PRIVATE_PAGES
+    page = st.sidebar.radio("Menü", all_pages)
+
+    # Kijelentkezés gomb
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown(f"👤 Bejelentkezve")
+        if st.button("🚪 Kijelentkezés", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.pop("login_email", None)
+            st.rerun()
+else:
+    page = st.sidebar.radio("Menü", PUBLIC_PAGES)
+    st.sidebar.markdown("---")
+    render_login_dialog()
+
+# Kapcsolat státusz a sidebarban — mindenki látja
 with st.sidebar:
     st.markdown("---")
     st.markdown("**Kapcsolatok:**")
@@ -1435,10 +1472,14 @@ if page == "Admin Regisztráció":
 elif page == "Alkalmak Áttekintése":
     render_attendance_overview_page(fs_db)
 elif page == "Adatbázis":
-    render_database_page(gs_client, fs_db)
+    if st.session_state.logged_in:
+        render_database_page(gs_client, fs_db)
 elif page == "Havi Elszámolás":
-    render_accounting_page(fs_db, gs_client)
+    if st.session_state.logged_in:
+        render_accounting_page(fs_db, gs_client)
 elif page == "👤 Tagok & Email":
-    render_members_page(fs_db, gs_client)
+    if st.session_state.logged_in:
+        render_members_page(fs_db, gs_client)
 elif page == "Beállítások (Kivételek)":
-    render_settings_page(fs_db)
+    if st.session_state.logged_in:
+        render_settings_page(fs_db)
