@@ -1415,8 +1415,18 @@ def check_login(email_input, password_input):
     try:
         correct_password = st.secrets["auth"]["password"]
     except Exception:
-        correct_password = "Gergo2010"  # fallback ha nincs secrets
-    return password_input == correct_password and "@" in email_input
+        correct_password = "Gergo2010"
+    if password_input != correct_password:
+        return False
+    # Csak a tagok email címei fogadhatók el
+    try:
+        members_df = get_members_fs(fs_db)
+        if members_df.empty:
+            return False
+        valid_emails = [e.strip().lower() for e in members_df["Email"].tolist() if e]
+        return email_input.strip().lower() in valid_emails
+    except Exception:
+        return False
 
 def render_login_dialog():
     """Bejelentkezési form a sidebarban."""
